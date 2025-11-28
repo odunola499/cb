@@ -1,0 +1,21 @@
+from dataclasses import dataclass
+
+
+@dataclass
+class Qwen2_5Config:
+    attention_dropout: float = 0.0
+    bos_token_id: int = 151643
+    eos_token_id: int = 151643
+    pad_token_id: int = 151643
+    hidden_act: str = "silu"
+    hidden_size: int = 896
+    intermediate_size: int = 4864
+    max_position_embeddings: int = 32768
+    max_window_layers: int = 24
+    num_attention_heads: int = 14
+    num_hidden_layers: int = 24
+    num_key_value_heads: int = 2
+    rms_norm_eps: float = 1e-6
+    vocab_size: int = 151936
+    rope_theta: int = 1000000
+    attn_implementation: str = "sdpa"
