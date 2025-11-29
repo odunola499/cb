@@ -8,5 +8,5 @@ def load_weights(repo_id, filename="model.safetensors"):
     with safe_open(local_filepath, framework="pt") as fp:
         for key in fp.keys():
             tensors[key[6:]] = fp.get_tensor(key)
-
+    tensors["lm_head.weight"] = tensors["embed_tokens.weight"]
     return tensors

@@ -14,7 +14,7 @@ class RMSNorm(nn.Module):
             f"embed dim {self.embed_dim} does not match input shape {x.shape}"
         )
         rms = torch.sqrt(self.eps + (x**2).mean(dim=-1, keepdim=True))
-        return (x / rms) * self.gamma
+        return (x / rms) * self.weight
 
 
 if __name__ == "__main__":
