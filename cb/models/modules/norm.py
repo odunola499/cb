@@ -7,7 +7,7 @@ class RMSNorm(nn.Module):
         super().__init__()
         self.eps = eps
         self.embed_dim = embed_dim
-        self.gamma = nn.Parameter(torch.ones(embed_dim))
+        self.weight = nn.Parameter(torch.ones(embed_dim))
 
     def forward(self, x: torch.Tensor):
         assert x.shape[-1] == self.embed_dim, (
