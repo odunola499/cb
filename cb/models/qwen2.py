@@ -4,11 +4,12 @@ import torch
 from torch import Tensor, nn
 from transformers import AutoTokenizer
 
-from cb.models import ModelOutput, ModelWrapper
+from cb.models import ModelOutput
 from cb.models.modules import (
     ACTIVATION_FUNCTIONS,
     ATTENTION_IMPLEMENTATION,
     Cache,
+    GenerationMixin,
     RMSNorm,
     apply_rotary_pos_emb,
     compute_default_rope_parameters,
@@ -155,7 +156,7 @@ class Qwen2DecoderLayer(nn.Module):
         return hidden_states
 
 
-class Qwen2Model(ModelWrapper):
+class Qwen2Model(GenerationMixin):
     def __init__(self, config: Qwen2_5Config):
         super().__init__()
         self.padding_idx = config.pad_token_id
