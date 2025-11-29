@@ -1,10 +1,9 @@
 from typing import Optional
 
 import torch
-from qwen_config import Qwen2_5Config
 from torch import Tensor, nn
+from transformers import AutoTokenizer
 
-# from transformers import AutoTokenizer
 from cb.models import ModelOutput, ModelWrapper
 from cb.models.modules import (
     ACTIVATION_FUNCTIONS,
@@ -15,6 +14,7 @@ from cb.models.modules import (
     compute_default_rope_parameters,
     create_causal_mask,
 )
+from cb.models.qwen_config import Qwen2_5Config
 
 
 class Qwen2MLP(nn.Module):
