@@ -4,6 +4,7 @@ import torch
 from qwen_config import Qwen2_5Config
 from torch import Tensor, nn
 
+# from transformers import AutoTokenizer
 from cb.models import ModelOutput, ModelWrapper
 from cb.models.modules import (
     ACTIVATION_FUNCTIONS,
@@ -156,7 +157,7 @@ class Qwen2DecoderLayer(nn.Module):
 
 class Qwen2Model(ModelWrapper):
     def __init__(self, config: Qwen2_5Config):
-        super().__init__(config)
+        super().__init__()
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size
 
@@ -166,7 +167,10 @@ class Qwen2Model(ModelWrapper):
         )
         self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.rotary_emb = Rope(config=config)
+        self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.config = config
+
+        self.embed_tokens.weight = self.lm_head.weight
 
     def forward(
         self,
@@ -175,31 +179,32 @@ class Qwen2Model(ModelWrapper):
         attention_mask: Optional[torch.LongTensor] = None,
         inputs_embeds: Optional[torch.Tensor] = None,
     ):
-        if inputs_embeds is not None:
+        if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-
         past_seen_tokens = cache.get_seq_length()
         cache_position = torch.arange(
             past_seen_tokens,
             past_seen_tokens + inputs_embeds.shape[1],
-            device=inputs_embeds.shape[1],
+            device=inputs_embeds.device,
         )
-        print(f"current cache position: {cache_position}")
         position_ids = cache_position.unsqueeze(0)
 
-        causal_mask = create_causal_mask(
-            inputs_embeds=inputs_embeds,
-            cache=cache,
-            config=self.config,
-            attention_mask=attention_mask,
-            cache_position=cache_position,
-            position_ids=position_ids,
-        )
+        if past_seen_tokens == 0:  # prefill mode
+            causal_mask = create_causal_mask(
+                inputs_embeds=inputs_embeds,
+                cache=cache,
+                config=self.config,
+                attention_mask=attention_mask,
+                cache_position=cache_position,
+                position_ids=position_ids,
+            )
+        else:
+            causal_mask = None
 
         hidden_states = inputs_embeds
         position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
-        for decoder_layer in self.layers[: self.config.num_hidden_layers]:
+        for decoder_layer in self.layers:
             hidden_states = decoder_layer(
                 hidden_states,
                 attention_mask=causal_mask,
@@ -210,3 +215,21 @@ class Qwen2Model(ModelWrapper):
 
         hidden_states = self.norm(hidden_states)
         return ModelOutput(last_hidden_state=hidden_states, cache=cache)
+
+    def get_tokenizer(self):
+        tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-0.5B")
+        return tokenizer
+
+
+if __name__ == "__main__":
+    from cb.models.qwen_config import QwenDummyConfig
+
+    config = QwenDummyConfig()
+    cache = Cache(config.num_hidden_layers)
+    model = Qwen2Model(config=config)
+
+    input_ids = torch.randint(1, 8, (4, 7))
+    print(f"input ids: {input_ids.shape}")
+    output = model.generate(inputs_ids=input_ids, cache=cache, max_new_tokens=4)
+
+    print(f"output:{output.shape}")

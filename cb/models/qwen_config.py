@@ -18,4 +18,19 @@ class Qwen2_5Config:
     rms_norm_eps: float = 1e-6
     vocab_size: int = 151936
     rope_theta: int = 1000000
+    attn_implementation: str = "eager"
+
+
+@dataclass
+class QwenDummyConfig(Qwen2_5Config):
+    bos_token_id: int = 15
+    eos_token_id: int = 15
+    pad_token_id: int = 15
+    hidden_size: int = 16
+    intermediate_size: int = 32
+    max_position_embeddings: int = 128
+    num_attention_heads: int = 4
+    num_hidden_layers: int = 2
+    num_key_value_heads: int = 4
+    vocab_size: int = 128
     attn_implementation: str = "sdpa"

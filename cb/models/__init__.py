@@ -25,7 +25,6 @@ class ModelWrapper(ABC, nn.Module):
         out = self(
             inputs_embeds=embeds,
             cache=cache,
-            use_cache=True,
         )
         hidden = out.last_hidden_state
         last_hidden_token = hidden[:, -1, :]
@@ -34,25 +33,21 @@ class ModelWrapper(ABC, nn.Module):
         return next_token
 
     def sample(self, logits, temperature):
-        logits /= max(0.01, temperature)
+        if temperature < 0.01:
+            return torch.argmax(logits, dim=-1)
+
+        logits = logits / temperature
         probs = F.softmax(logits, dim=-1)
-        next_token = torch.argmax(probs, dim=-1)
-        return next_token
+        return torch.multinomial(probs, num_samples=1).squeeze(-1)
 
     def decode(self, input_ids, cache: Cache, max_new_tokens, temperature):
-        next_token = input_ids  # B, 1, E
-        generated = [next_token]
+        next_token = input_ids
+        generated = []
 
         for _ in range(max_new_tokens - 1):
-            embeds = self.embed_tokens(next_token)
-            out = self(
-                inputs_embeds=embeds,
-                cache=cache,
-                use_cache=True,
-            )
-            hidden = out.last_hidden_state
-            logits = self.lm_head(hidden)
-            next_token = self.sample(logits, temperature=temperature)
+            out = self(input_ids=next_token, cache=cache)
+            logits = self.lm_head(out.last_hidden_state[:, -1, :])
+            next_token = self.sample(logits, temperature).unsqueeze(-1)
             generated.append(next_token)
 
         generated = torch.cat([input_ids] + generated, dim=-1)
@@ -68,7 +63,7 @@ class ModelWrapper(ABC, nn.Module):
     ):
         if cache is None:
             cache = Cache(num_layers=self.config.num_hidden_layers)
-        next_token = self.prefill(inputs_ids, cache=cache, temperature=temperature)
+        next_token = self.prefill(inputs_ids, cache=cache, temperature=temperature).unsqueeze(-1)
         generated_result = self.decode(
             next_token, cache=cache, max_new_tokens=max_new_tokens, temperature=temperature
         )
