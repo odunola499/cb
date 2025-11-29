@@ -39,7 +39,7 @@ class Rope(nn.Module):
         head_dim = config.hidden_size / config.num_attention_heads
         inv_freq = compute_default_rope_parameters(config.rope_theta, head_dim)
 
-        self.register_buffer("inv_freq", inv_freq)
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.original_inv_feq = inv_freq
 
     def forward(self, x, position_ids):
@@ -170,7 +170,7 @@ class Qwen2Model(ModelWrapper):
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.config = config
 
-        self.embed_tokens.weight = self.lm_head.weight
+        self.lm_head.weight = self.embed_tokens.weight
 
     def forward(
         self,
