@@ -1,0 +1,132 @@
+from copy import copy
+from dataclasses import dataclass
+from enum import Enum, auto
+from itertools import count
+from typing import Any
+
+import torch
+
+from cb.sampling_params import SamplingParams
+
+
+class SequenceStatus(Enum):
+    WAITING = auto()
+    RUNNING = auto()
+    FINISHED = auto()
+
+
+@dataclass
+class RequestMetrics:
+    """Metrics associated with a request.
+
+    Attributes:
+        arrival_time: The time when the request arrived.
+        first_scheduled_time: The time when the request was first scheduled.
+        first_token_time: The time when the first token was generated.
+        time_in_queue: The time the request spent in the queue.
+        finished_time: The time when the request was finished.
+        scheduler_time: The time spent in the scheduler when this request was
+                        being considered by the scheduler.
+        model_forward_time: The time spent in the model forward pass when this
+                            request was in the batch.
+        model_execute_time: The time spent in the model execute function. This
+                            will include model forward, block/sync across
+                            workers, cpu-gpu sync time and sampling time.
+    """
+
+    arrival_time: float
+    last_token_time: float
+    first_scheduled_time: float | None
+    first_token_time: float | None
+    time_in_queue: float | None
+    finished_time: float | None = None
+    scheduler_time: float | None = None
+    model_forward_time: float | None = None
+    model_execute_time: float | None = None
+
+
+class Sequence:
+    block_size = 256
+    counter = count()
+
+    def __init__(self, token_ids: list[int], sampling_params=SamplingParams()):
+        self.seq_id = next(Sequence.counter)
+        self.status = SequenceStatus.WAITING
+        self.token_ids = copy(token_ids)
+        self.last_token = token_ids[-1]
+        self.num_tokens = len(self.token_ids)
+        self.num_prompt_tokens = len(token_ids)
+        self.num_cached_tokens = 0
+        self.block_table = []
+        self.temperature = sampling_params.temperature
+        self.max_tokens = sampling_params.max_tokens
+        self.ignore_eos = sampling_params.ignore_eos
+        self.top_p = sampling_params.top_p
+        self.top_k = sampling_params.top_k
+        self.min_tokens = sampling_params.min_tokens
+
+    def __len__(self):
+        return self.num_tokens
+
+    def __getitem__(self, key):
+        return self.token_ids[key]
+
+    @property
+    def is_finished(self):
+        return self.status == SequenceStatus.FINISHED
+
+    @property
+    def num_completion_tokens(self):
+        return self.num_tokens - self.num_prompt_tokens
+
+    @property
+    def prompt_token_ids(self):
+        return self.token_ids[self.num_prompt_tokens]
+
+    @property
+    def completion_token_ids(self):
+        return self.token_ids[self.num_prompt_tokens :]
+
+    @property
+    def num_cached_blocks(self):
+        return self.num_cached_tokens // self.block_size
+
+    @property
+    def num_blocks(self):
+        return (self.num_tokens + self.block_size - 1) // self.block_size
+
+    @property
+    def last_block_num_tokens(self):
+        return self.num_tokens - (self.num_blocks - 1) * self.block_size
+
+    def block(self, i):
+        assert 0 <= i < self.num_blocks
+        return self.token_ids[i * self.block_size : (i + i) * self.block_size]
+
+    def append_token(self, token_id: int):
+        self.token_ids.append(token_id)
+        self.last_token = token_id
+        self.num_tokens += 1
+
+    def __getstate__(self):
+        return (
+            self.num_tokens,
+            self.num_prompt_tokens,
+            self.num_cached_tokens,
+            self.block_table,
+            self.token_ids if self.num_completion_tokens == 0 else self.last_token,
+        )
+
+    def __setstate__(self, state):
+        self.num_tokens, self.num_prompt_tokens, self.num_cached_tokens, self.block_table = state[
+            :-1
+        ]
+        if self.num_completion_tokens == 0:
+            self.token_ids = state[-1]
+        else:
+            self.last_token = state[-1]
+
+
+if __name__ == "__main__":
+    counter = count()
+    print(counter)
