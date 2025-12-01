@@ -2,8 +2,8 @@ from typing import Optional
 
 import torch
 from torch import Tensor, nn
+from transformers import AutoTokenizer
 
-# from transformers import AutoTokenizer
 from cb.models import ModelOutput
 from cb.models.modules import (
     ACTIVATION_FUNCTIONS,
