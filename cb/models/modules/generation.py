@@ -51,14 +51,14 @@ class GenerationMixin(ABC, nn.Module):
 
     def generate(
         self,
-        inputs_ids: Tensor,
+        input_ids: Tensor,
         cache: Optional[Cache] = None,
         max_new_tokens=10,
         temperature=1,
     ):
         if cache is None:
             cache = Cache(num_layers=self.config.num_hidden_layers)
-        next_token = self.prefill(inputs_ids, cache=cache, temperature=temperature).unsqueeze(-1)
+        next_token = self.prefill(input_ids, cache=cache, temperature=temperature).unsqueeze(-1)
         generated_result = self.decode(
             next_token, cache=cache, max_new_tokens=max_new_tokens, temperature=temperature
         )

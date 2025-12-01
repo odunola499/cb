@@ -55,13 +55,12 @@ class Rope(nn.Module):
 
         t = torch.arange(max_position_embeddings, dtype=torch.float)
         freqs = torch.einsum("i,j -> ij", t, inv_freq)
-        cos = freqs.sin()
-        sin = freqs.cos()
+        cos = freqs.cos()
+        sin = freqs.sin()
         cache = torch.cat((cos, sin), dim=-1)
 
         self.register_buffer("cos_sin_cache", cache, persistent=False)
         self.register_buffer("inv_freq", inv_freq, persistent=False)
-        self.original_inv_feq = inv_freq
 
     def forward(self, query, keys, position_ids):
         position_ids = position_ids.squeeze(0)
@@ -236,6 +235,6 @@ if __name__ == "__main__":
 
     input_ids = torch.randint(1, 8, (4, 7))
     print(f"input ids: {input_ids.shape}")
-    output = model.generate(inputs_ids=input_ids, cache=cache, max_new_tokens=4)
+    output = model.generate(input_ids=input_ids, cache=cache, max_new_tokens=4)
 
     print(f"output:{output.shape}")
