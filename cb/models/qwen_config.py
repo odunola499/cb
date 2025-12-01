@@ -26,7 +26,7 @@ class QwenDummyConfig(Qwen2_5Config):
     bos_token_id: int = 15
     eos_token_id: int = 15
     pad_token_id: int = 15
-    hidden_size: int = 16
+    hidden_size: int = 32
     intermediate_size: int = 32
     max_position_embeddings: int = 128
     num_attention_heads: int = 4

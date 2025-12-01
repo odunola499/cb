@@ -30,7 +30,6 @@ class CacheLayer:
     def __init__(self):
         self.cached_keys = None
         self.cached_values = None
-        self.cache_position = None
         self.cache_kwargs = None
 
         self.seq_length = 0
@@ -38,10 +37,8 @@ class CacheLayer:
     def update(self, keys: Tensor, values: Tensor, cache_kwargs: Dict[str, torch.Tensor]):
         if self.cached_keys is not None:
             self.cached_keys = torch.cat([self.cached_keys, keys], dim=2)
-            self.cache_position = torch.cat([self.cache_position, cache_kwargs["cache_position"]])
         else:
             self.cached_keys = keys
-            self.cache_position = cache_kwargs["cache_position"]
 
         if self.cached_values is not None:
             self.cached_values = torch.cat([self.cached_values, values], dim=2)

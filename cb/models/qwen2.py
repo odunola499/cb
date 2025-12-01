@@ -2,8 +2,8 @@ from typing import Optional
 
 import torch
 from torch import Tensor, nn
-from transformers import AutoTokenizer
 
+# from transformers import AutoTokenizer
 from cb.models import ModelOutput
 from cb.models.modules import (
     ACTIVATION_FUNCTIONS,
@@ -11,11 +11,20 @@ from cb.models.modules import (
     Cache,
     GenerationMixin,
     RMSNorm,
-    apply_rotary_pos_emb,
-    compute_default_rope_parameters,
     create_causal_mask,
 )
 from cb.models.qwen_config import Qwen2_5Config
+
+
+def apply_rotary_pos_emb(
+    x: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+) -> torch.Tensor:
+    x1, x2 = torch.chunk(x.float(), 2, dim=-1)
+    y1 = x1 * cos - x2 * sin
+    y2 = x2 * cos + x1 * sin
+    return torch.cat((y1, y2), dim=-1).to(x.dtype)
 
 
 class Qwen2MLP(nn.Module):
@@ -38,25 +47,30 @@ class Rope(nn.Module):
         self.max_seq_len_cached = config.max_position_embeddings
         self.original_max_seq_len = config.max_position_embeddings
         head_dim = config.hidden_size / config.num_attention_heads
-        inv_freq = compute_default_rope_parameters(config.rope_theta, head_dim)
 
+        inv_freq = 1.0 / (
+            config.rope_theta ** (torch.arange(0, head_dim, 2, dtype=torch.float) / head_dim)
+        )
+        max_position_embeddings = config.max_position_embeddings
+
+        t = torch.arange(max_position_embeddings, dtype=torch.float)
+        freqs = torch.einsum("i,j -> ij", t, inv_freq)
+        cos = freqs.sin()
+        sin = freqs.cos()
+        cache = torch.cat((cos, sin), dim=-1)
+
+        self.register_buffer("cos_sin_cache", cache, persistent=False)
         self.register_buffer("inv_freq", inv_freq, persistent=False)
         self.original_inv_feq = inv_freq
 
-    def forward(self, x, position_ids):
-        inv_freq_expanded = (
-            self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1).to(x.device)
-        )
-        position_ids_expanded = position_ids[:, None, :].float()
+    def forward(self, query, keys, position_ids):
+        position_ids = position_ids.squeeze(0)
+        cos_sin = self.cos_sin_cache[position_ids][None, None, :, :]
+        cos, sin = torch.chunk(cos_sin, 2, dim=-1)
+        query = apply_rotary_pos_emb(query, cos, sin)
+        keys = apply_rotary_pos_emb(keys, cos, sin)
 
-        device_type = x.device.type
-        with torch.autocast(device_type=device_type, enabled=False):
-            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
-            emb = torch.cat((freqs, freqs), dim=-1)
-            cos = emb.cos()
-            sin = emb.sin()
-
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+        return query, keys
 
 
 class Qwen2Attention(nn.Module):
@@ -68,6 +82,7 @@ class Qwen2Attention(nn.Module):
         self.num_key_value_groups = config.num_attention_heads // config.num_key_value_heads
         self.scaling = self.head_dim**-0.5
         self.attention_dropout = config.attention_dropout
+        self.rope = Rope(config=config)
         self.q_proj = nn.Linear(
             config.hidden_size, config.num_attention_heads * self.head_dim, bias=True
         )
@@ -84,10 +99,9 @@ class Qwen2Attention(nn.Module):
     def forward(
         self,
         hidden_states: torch.Tensor,
-        position_embeddings: tuple[torch.Tensor, torch.Tensor],
         cache: Cache,
+        position_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor],
-        cache_position: Optional[torch.LongTensor] = None,
     ):
         input_shape = hidden_states.shape[:-1]
         hidden_shape = (*input_shape, -1, self.head_dim)
@@ -96,12 +110,8 @@ class Qwen2Attention(nn.Module):
         key_states = self.k_proj(hidden_states).view(hidden_shape).transpose(1, 2)
         value_states = self.v_proj(hidden_states).view(hidden_shape).transpose(1, 2)
 
-        cos, sin = position_embeddings
-        query_states, key_states = apply_rotary_pos_emb(query_states, key_states, cos, sin)
-        cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
-        key_states, value_states = cache.update(
-            key_states, value_states, self.layer_idx, cache_kwargs
-        )
+        query_states, key_states = self.rope(query_states, key_states, position_ids)
+        key_states, value_states = cache.update(key_states, value_states, self.layer_idx)
 
         attention_forward = ATTENTION_IMPLEMENTATION[self.config.attn_implementation]
         attn_output, attn_weights = attention_forward(
@@ -133,9 +143,9 @@ class Qwen2DecoderLayer(nn.Module):
         self,
         hidden_states: torch.Tensor,
         cache: Cache,
+        position_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
         cache_position: Optional[torch.LongTensor] = None,
-        position_embeddings: Optional[tuple[torch.Tensor, torch.Tensor]] = None,
     ) -> torch.Tensor:
         residual = hidden_states
         hidden_states = self.input_layernorm(hidden_states)
@@ -144,8 +154,7 @@ class Qwen2DecoderLayer(nn.Module):
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             cache=cache,
-            cache_position=cache_position,
-            position_embeddings=position_embeddings,
+            position_ids=position_ids,
         )
         hidden_states = residual + hidden_states
 
@@ -167,7 +176,6 @@ class Qwen2Model(GenerationMixin):
             [Qwen2DecoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         )
         self.norm = RMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-        self.rotary_emb = Rope(config=config)
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
         self.config = config
 
@@ -178,10 +186,8 @@ class Qwen2Model(GenerationMixin):
         cache: Cache,
         input_ids: Optional[torch.LongTensor] = None,
         attention_mask: Optional[torch.LongTensor] = None,
-        inputs_embeds: Optional[torch.Tensor] = None,
     ):
-        if inputs_embeds is None:
-            inputs_embeds = self.embed_tokens(input_ids)
+        inputs_embeds = self.embed_tokens(input_ids)
         past_seen_tokens = cache.get_seq_length()
         cache_position = torch.arange(
             past_seen_tokens,
@@ -203,13 +209,12 @@ class Qwen2Model(GenerationMixin):
             causal_mask = None
 
         hidden_states = inputs_embeds
-        position_embeddings = self.rotary_emb(hidden_states, position_ids)
 
         for decoder_layer in self.layers:
             hidden_states = decoder_layer(
                 hidden_states,
                 attention_mask=causal_mask,
-                position_embeddings=position_embeddings,
+                position_ids=position_ids,
                 cache_position=cache_position,
                 cache=cache,
             )

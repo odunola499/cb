@@ -10,15 +10,16 @@ from cb.models.modules import Cache
 
 class GenerationMixin(ABC, nn.Module):
     def prefill(self, input_ids, cache: Cache, temperature=0):
-        embeds = self.embed_tokens(input_ids)
+        print("Prefill")
         out = self(
-            inputs_embeds=embeds,
+            input_ids=input_ids,
             cache=cache,
         )
         hidden = out.last_hidden_state
         last_hidden_token = hidden[:, -1, :]
         logits = self.lm_head(last_hidden_token)
         next_token = self.sample(logits, temperature)
+        print("End of Prefill")
         return next_token
 
     @abstractmethod
@@ -34,6 +35,7 @@ class GenerationMixin(ABC, nn.Module):
         return torch.multinomial(probs, num_samples=1).squeeze(-1)
 
     def decode(self, input_ids, cache: Cache, max_new_tokens, temperature):
+        print("Decode")
         next_token = input_ids
         generated = []
 
@@ -44,6 +46,7 @@ class GenerationMixin(ABC, nn.Module):
             generated.append(next_token)
 
         generated = torch.cat([input_ids] + generated, dim=-1)
+        print("End of Decode")
         return generated
 
     def generate(
