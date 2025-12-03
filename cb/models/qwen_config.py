@@ -1,5 +1,7 @@
 from dataclasses import dataclass
 
+import torch
+
 
 @dataclass
 class Qwen2_5Config:
@@ -19,6 +21,9 @@ class Qwen2_5Config:
     vocab_size: int = 151936
     rope_theta: int = 1000000
     attn_implementation: str = "eager"
+    hf_repo: str = "Qwen/Qwen2.5-0.5B"
+    model_name: str = "qwen2.5"
+    dtype = torch.bfloat16
 
 
 @dataclass

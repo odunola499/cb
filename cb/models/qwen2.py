@@ -5,6 +5,7 @@ from torch import Tensor, nn
 from transformers import AutoTokenizer
 
 from cb.models import ModelOutput
+from cb.models.load_weights import load_weights
 from cb.models.modules import (
     ACTIVATION_FUNCTIONS,
     ATTENTION_IMPLEMENTATION,
@@ -179,6 +180,9 @@ class Qwen2Model(GenerationMixin):
         self.config = config
 
         self.lm_head.weight = self.embed_tokens.weight
+
+        weights = load_weights(config.hf_repo)
+        self.load_state_dict(weights)
 
     def forward(
         self,

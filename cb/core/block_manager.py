@@ -67,23 +67,18 @@ class BlockManager:
         cache_miss = False
         for i in range(seq.num_blocks):
             token_ids = seq.block(i)
-            h = (
-                compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
-            )  # Compute hash if we filled the block
+            h = compute_hash(token_ids, h) if len(token_ids) == self.block_size else -1
             block_id = self.hash_to_block_id.get(h, -1)
             if block_id == -1 or self.blocks[block_id].token_ids != token_ids:
-                # we do not have this block cached
                 cache_miss = True
 
             if cache_miss:
-                # allocate because we do not have this block cached
                 block_id = self.free_block_ids[0]
                 block = self._allocate_block(block_id)
 
             else:
                 seq.num_cached_tokens += self.block_size
                 if block_id in self.used_block_ids:
-                    # Safety, check that block id is indeed used
                     block = self.blocks[block_id]
                     block.ref_count += 1
 
@@ -96,6 +91,7 @@ class BlockManager:
             seq.block_table.append(block_id)
 
     def deallocate(self, seq: Sequence):
+        # Frees up blocks
         for block_id in reversed(seq.block_table):
             block = self.blocks[block_id]
             block.ref_count -= 1
